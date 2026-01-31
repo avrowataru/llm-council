@@ -1,8 +1,11 @@
 """3-stage LLM Council orchestration."""
 
+import logging
 from typing import List, Dict, Any, Tuple
-from .openrouter import query_models_parallel, query_model
+from .lmstudio import query_models_parallel, query_model
 from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+
+logger = logging.getLogger(__name__)
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -15,6 +18,11 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     Returns:
         List of dicts with 'model' and 'response' keys
     """
+    logger.info("="*80)
+    logger.info("STAGE 1: Collecting individual responses from council models")
+    logger.info(f"User query: {user_query[:100]}..." if len(user_query) > 100 else f"User query: {user_query}")
+    logger.info(f"Querying {len(COUNCIL_MODELS)} models: {COUNCIL_MODELS}")
+    
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel
@@ -24,11 +32,17 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
     stage1_results = []
     for model, response in responses.items():
         if response is not None:  # Only include successful responses
+            content = response.get('content', '')
             stage1_results.append({
                 "model": model,
-                "response": response.get('content', '')
+                "response": content
             })
+            logger.info(f"[OK] {model}: Received response ({len(content)} chars)")
+        else:
+            logger.warning(f"[FAIL] {model}: Failed to respond")
 
+    logger.info(f"Stage 1 complete: {len(stage1_results)}/{len(COUNCIL_MODELS)} models responded")
+    logger.info("="*80)
     return stage1_results
 
 
@@ -46,6 +60,10 @@ async def stage2_collect_rankings(
     Returns:
         Tuple of (rankings list, label_to_model mapping)
     """
+    logger.info("="*80)
+    logger.info("STAGE 2: Collecting peer rankings")
+    logger.info(f"Anonymizing and ranking {len(stage1_results)} responses")
+    
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
 
@@ -95,6 +113,7 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel
+    logger.info(f"Requesting rankings from {len(COUNCIL_MODELS)} models")
     responses = await query_models_parallel(COUNCIL_MODELS, messages)
 
     # Format results
@@ -108,7 +127,12 @@ Now provide your evaluation and ranking:"""
                 "ranking": full_text,
                 "parsed_ranking": parsed
             })
+            logger.info(f"[OK] {model}: Provided ranking - {parsed}")
+        else:
+            logger.warning(f"[FAIL] {model}: Failed to provide ranking")
 
+    logger.info(f"Stage 2 complete: {len(stage2_results)}/{len(COUNCIL_MODELS)} rankings received")
+    logger.info("="*80)
     return stage2_results, label_to_model
 
 
@@ -128,6 +152,9 @@ async def stage3_synthesize_final(
     Returns:
         Dict with 'model' and 'response' keys
     """
+    logger.info("="*80)
+    logger.info("STAGE 3: Chairman synthesizing final response")
+    logger.info(f"Chairman model: {CHAIRMAN_MODEL}")
     # Build comprehensive context for chairman
     stage1_text = "\n\n".join([
         f"Model: {result['model']}\nResponse: {result['response']}"
@@ -159,18 +186,23 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model
+    logger.info("Requesting final synthesis from chairman...")
     response = await query_model(CHAIRMAN_MODEL, messages)
 
     if response is None:
         # Fallback if chairman fails
+        logger.error("Chairman failed to generate final response")
         return {
             "model": CHAIRMAN_MODEL,
             "response": "Error: Unable to generate final synthesis."
         }
 
+    final_response = response.get('content', '')
+    logger.info(f"[OK] Chairman synthesis complete ({len(final_response)} chars)")
+    logger.info("="*80)
     return {
         "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
+        "response": final_response
     }
 
 
@@ -303,6 +335,9 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
+    logger.info("\n" + "#"*80)
+    logger.info("# STARTING FULL COUNCIL PROCESS")
+    logger.info("#"*80)
     # Stage 1: Collect individual responses
     stage1_results = await stage1_collect_responses(user_query)
 
@@ -332,4 +367,8 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
         "aggregate_rankings": aggregate_rankings
     }
 
+    logger.info("\n" + "#"*80)
+    logger.info("# COUNCIL PROCESS COMPLETE")
+    logger.info("#"*80 + "\n")
+    
     return stage1_results, stage2_results, stage3_result, metadata

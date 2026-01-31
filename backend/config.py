@@ -1,26 +1,65 @@
 """Configuration for the LLM Council."""
 
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# OpenRouter API key
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# Logging configuration
+LOG_DIR = "logs"
+LOG_FILE = os.path.join(LOG_DIR, "council.log")
 
-# Council members - list of OpenRouter model identifiers
-COUNCIL_MODELS = [
-    "openai/gpt-5.1",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-sonnet-4.5",
-    "x-ai/grok-4",
-]
+# Create logs directory if it doesn't exist
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# LM Studio Configuration
+# LM Studio provides an OpenAI-compatible API at http://localhost:1234/v1
+LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
+
+# Note: LM Studio typically doesn't require an API key for local usage
+# But we keep this for compatibility if you set up authentication
+LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
+
+# Council members - These are model names loaded in LM Studio
+# You need to have these models loaded in LM Studio
+# The model names should match what's shown in LM Studio's model list
+# Default to generic names that you should customize based on your loaded models
+COUNCIL_MODELS = os.getenv("COUNCIL_MODELS", "model-1,model-2,model-3").split(",")
+
+# If you have specific models loaded, update this list:
+# For example:
+# COUNCIL_MODELS = [
+#     "mistral-7b-instruct",
+#     "llama-2-13b-chat", 
+#     "neural-chat-7b",
+# ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "google/gemini-3-pro-preview"
+# This should also be a model loaded in LM Studio
+CHAIRMAN_MODEL = os.getenv("CHAIRMAN_MODEL", COUNCIL_MODELS[0] if COUNCIL_MODELS else "model-1")
 
-# OpenRouter API endpoint
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+# LM Studio API endpoint (OpenAI-compatible)
+LM_STUDIO_API_URL = f"{LM_STUDIO_BASE_URL}/chat/completions"
 
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
+
+# Create data directory if it doesn't exist
+os.makedirs(DATA_DIR, exist_ok=True)
+
+logger.info(f"LM Studio configured at: {LM_STUDIO_BASE_URL}")
+logger.info(f"Council models: {COUNCIL_MODELS}")
+logger.info(f"Chairman model: {CHAIRMAN_MODEL}")
